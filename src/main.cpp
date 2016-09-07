@@ -32,6 +32,7 @@
 #include "translator.hpp"
 #include "readfilter.hpp"
 #include "distributions.hpp"
+#include "hg38.hpp"
 #include "unittest/driver.hpp"
 
 
@@ -386,6 +387,13 @@ void help_validate(char** argv) {
         << "    -e, --edges    verify that the graph contains all nodes that are referred to by edges" << endl
         << "    -p, --paths    verify that contiguous path segments are connected by edges" << endl
         << "    -o, --orphans  verify that all nodes have edges" << endl;
+}
+
+int main_hg38(int argc, char** argv) {
+  cout <<"ain" << endl;
+  string filename1 = argv[2];
+  string filename2 = argv[3];
+  parse_data_files(filename1, filename2);
 }
 
 int main_validate(int argc, char** argv) {
@@ -8929,7 +8937,10 @@ int main(int argc, char *argv[])
         return main_version(argc, argv);
     } else if (command == "test") {
         return main_test(argc, argv);
-    }else {
+    } else if (command == "hg38") {
+      cout << "HG38" << endl;
+      main_hg38(argc, argv);
+    } else {
         cerr << "error:[vg] command " << command << " not found" << endl;
         vg_help(argv);
         return 1;
