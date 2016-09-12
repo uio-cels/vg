@@ -18,7 +18,50 @@ namespace vg{
     int start_pos;
     int end_pos;
     AltLoci(string name, string chrom, int start, int end);
-    
+
+    bool operator<(AltLoci other) const {
+      if (chrom!=other.chrom) return chrom <other.chrom;
+      return chrom<other.chrom;
+    }
+
+  };
+
+  map<string, string> get_chr_map() {
+    map<string, string> chr_map;
+    ifstream mapfile("chrmap.txt");
+    string line;
+    vector<string> parts;
+    while (getline(mapfile, line)) {
+      boost::split(parts, line, boost::is_any_of("\t "));
+      chr_map[parts[0]] = parts[1];
+    }
+    mapfile.close();
+    return chr_map;
+  }
+
+  class AltReference {
+  public:
+    FastaReference main_ref, alt_ref;
+    map<string, string> chr_map;
+    AltReference(FastaReference &mainref, FastaReference &altref) {
+      main_ref = mainref;
+      alt_ref = altref;
+      chr_map = get_chr_map();
+    }
+    void get_sequence(string chromosome, int start, int end, string &sequence) {
+      string chr_id = chr_map[chromosome];
+      cout << chromosome << endl;
+      if (boost::ends_with(chromosome, "alt")){
+	cout << "Find: "<< chr_id << ":" << start << endl;
+	//for (auto seqname : alt_ref.index->sequenceNames) cout << seqname << endl;
+	sequence = alt_ref.getSubSequence(chr_id, start, end);
+      }
+      else {
+	cout << "Find: "<< chr_id << ":" << start << endl;
+	//for (auto seqname : main_ref.index->sequenceNames) cout << seqname << endl;
+	sequence = main_ref.getSubSequence(chr_id, start, end);
+      }
+    }
   };
 
   class Chromosome {
@@ -30,6 +73,7 @@ namespace vg{
   
   Chromosome::Chromosome(string name, int len): name(name), len(len){}
   AltLoci::AltLoci(string name, string chrom, int start, int end): name(name), chrom(chrom), start_pos(start), end_pos(end){}
+
 
   void parse_alt_loci(vector<AltLoci> &altLoci, string filename) {
     string line;
@@ -44,7 +88,6 @@ namespace vg{
     }
     file1.close();
   }
-
 
   // Read through chrom sizes file and
   // a) create chromosome objects for each chromosome
@@ -78,28 +121,25 @@ namespace vg{
     file2.close();
   }
 
-  // Should return the sequence on a given chromosome from start to end
-  void get_sequence(string chromosome, int start, int end, string &sequence) {
-    sequence = "tgc";
-  }
 
-
-  void make_events_map(map<string, vector<int> > &events, const vector<AltLoci> &altLoci)
+  void make_events_map(map<string, vector<int> > &events, const vector<AltLoci> &altLoci, const vector<Chromosome> &chromosomes)
   {
     for (auto alt : altLoci) {
       events[alt.chrom].push_back(alt.start_pos);
       events[alt.chrom].push_back(alt.end_pos);
     }
+    for (auto chr : chromosomes)
+      events[chr.name].push_back(chr.len);
   }
   
-  Node create_node(string chrom, int start, int stop, int id)
+  Node create_node(string chrom, int start, int stop, int id, AltReference reference)
   {
     Node n;
     string seq;
-    get_sequence(chrom, start, stop, seq);
+    reference.get_sequence(chrom, start, stop, seq);
     n.set_sequence(seq);
     n.set_id(id);
-    n.set_name(chrom+boost::lexical_cast<string>(start));
+    n.set_name(chrom+boost::lexical_cast<string>(start)); 
     return n;
   }
 
@@ -109,112 +149,44 @@ namespace vg{
     e.set_to(to.id());
     return e;
   }
-
-  void make_blocks(const vector<AltLoci> &altLoci,
-		   const vector<Chromosome> &chromosomes,
-		   vector<Node> &nodes,
-		   vector<Edge> &edges)
-  {
-    map<int, Node> node_ids;
-    map<string, vector<int> > events;
-    make_events_map(events, altLoci);
-
-    map<tuple<string,int>, Node> starts;
-    map<tuple<string,int>, Node> ends;
-    int id = 1;
-
-    for (auto &iter : events) {
-      set<int> u_events(iter.second.begin(), iter.second.end());
-      int start = 0;
-      string chrom  = iter.first;
-      for (auto stop : u_events){
-	Node n = create_node(chrom, start, stop, id++);
-	nodes.push_back(n);
-	starts[make_tuple(chrom, start)] = n;
-	ends[make_tuple(chrom, stop)] = n;
-	node_ids[n.id()] = n;
-	start = stop;
-      }
-
-      int stop = start;
-      for (auto chr : chromosomes) {
-	if (chr.name != chrom) continue;
-	stop = chr.len;
-	break;
-      }
-
-      Node n = create_node(chrom, start, stop, id++);
-      nodes.push_back(n);
-      starts[make_tuple(chrom, start)] = n;
-      ends[make_tuple(chrom, stop)] = n;
-      node_ids[n.id()] = n;
-    }
-
-    for (auto alt : altLoci) {
-      Node n = create_node(alt.name, 0, alt.len, id++);
-      nodes.push_back(n);
-      
-      Node pre_node = ends[make_tuple(alt.chrom, alt.start_pos)];
-      Node post_node = starts[make_tuple(alt.chrom, alt.end_pos)];
-      if (post_node.id() == 0) cout << alt.chrom << ", " << alt.end_pos << endl;
-	
-      edges.push_back(create_edge(pre_node, n));
-      edges.push_back(create_edge(n, post_node));
-    }
-    for (auto edge : edges) cout << edge.from() <<  ": " << edge.to() << endl;
-  }
   
   vector<Node> get_main_nodes(const map<string, vector<int> > &events,
-			      map<tuple<string,int>, Node> &starts;
-			      map<tuple<string,int>, Node> &ends;
+			      map<tuple<string,int>, Node> &starts,
+			      map<tuple<string,int>, Node> &ends,
+			      AltReference reference
 			      ) {
     vector<Node> nodes;
+    int id = 1;
     for (auto &iter : events) {
       set<int> u_events(iter.second.begin(), iter.second.end());
       int start = 0;
       string chrom  = iter.first;
       for (auto stop : u_events){
-	Node n = create_node(chrom, start, stop, id++);
+	Node n = create_node(chrom, start, stop, id++, reference);
 	nodes.push_back(n);
 	starts[make_tuple(chrom, start)] = n;
 	ends[make_tuple(chrom, stop)] = n;
-	node_ids[n.id()] = n;
 	start = stop;
       }
-
-      int stop = start;
-      for (auto chr : chromosomes) {
-	if (chr.name != chrom) continue;
-	stop = chr.len;
-	break;
-      }
-
-      Node n = create_node(chrom, start, stop, id++);
-      nodes.push_back(n);
-      starts[make_tuple(chrom, start)] = n;
-      ends[make_tuple(chrom, stop)] = n;
-      node_ids[n.id()] = n;
     }
     return nodes;
   }
-    
-    
 
-  map<AltLoci, Node> get_alt_nodes(const vector<AltLoci> &altLoci) {
+  map<AltLoci, Node> get_alt_nodes(const vector<AltLoci> &altLoci, int id, AltReference reference) {
     map<AltLoci, Node> nodes;
     for (auto alt : altLoci) {
-      nodes[alt] = create_node(alt.name, 0, alt.len, id++);
+      nodes[alt] = create_node(alt.name, 0, alt.len, id++, reference);
     }
     return nodes;
   }
 
   
   vector<Edge> get_edges(const map<AltLoci, Node> & altNodes,
-			 const map<tuple<string, int>, Node> &starts,
-			 const map<tuple<string, int>, Node> &ends
+			 map<tuple<string, int>, Node> &starts,
+			 map<tuple<string, int>, Node> &ends
 			 ) {
     vector<Edge> edges;
-    for (auto iter : altNodes) {
+    for (auto &iter : altNodes) {
       AltLoci alt = iter.first;
       Node n = iter.second;
       Node pre_node = ends[make_tuple(alt.chrom, alt.start_pos)];
@@ -227,9 +199,6 @@ namespace vg{
     for (auto edge : edges) cout << edge.from() <<  ": " << edge.to() << endl;
     return edges;
   }
-
-    
-
 
   void test_graph_gen() {
     Node a, b;
@@ -252,21 +221,54 @@ namespace vg{
     VG graph(nodes, edges);
   }
 
-
-  void parse_data_files(string filename1, string filename2) {
+  void parse_data_files(string filename1,
+			string filename2,
+			AltReference &reference
+			) {
     vector<Node> nodes;
     vector<Edge> edges;
-    vector<AltLoci> altLoci;
-    vector<Chromosome> chromosomes;
-    parse_alt_loci(altLoci, filename1);
-    parse_chrom_sizes(altLoci, chromosomes, filename2);
-    make_blocks(altLoci, chromosomes, nodes, edges);
+    vector<AltLoci> altLoci, altLociTmp;
+    vector<Chromosome> chromosomes, chromosomesTmp;
+    parse_alt_loci(altLociTmp, filename1);
+    parse_chrom_sizes(altLociTmp, chromosomesTmp, filename2);
+    for (auto alt : altLociTmp) 
+      if (alt.chrom=="chr1") altLoci.push_back(alt);
+    for (auto chr : chromosomesTmp)
+      if (chr.name == "chr1") chromosomes.push_back(chr);
+    
+    map<string, vector<int> > events;
+    make_events_map(events,  altLoci, chromosomes);
+    map<tuple<string,int>, Node> starts;
+    map<tuple<string,int>, Node> ends;
+    nodes = get_main_nodes(events, starts, ends, reference);
+    auto alt_nodes = get_alt_nodes(altLoci, nodes.size()+1, reference);
+    edges = get_edges(alt_nodes, starts, ends);
+    cout << "Got edges" << endl;
+    for (auto node : nodes)
+      cout << node.id() << "," << node.name() << endl;
+    for (auto edge : edges)
+      cout << edge.from() << "-" << edge.to() << endl;
+      
     set<Node*> pnodes;
     set<Edge*> pedges;
-    for (auto node : nodes)
-      pnodes.insert(&node);
-    for (auto edge : edges)
-      pedges.insert(&edge);
+    cout << "Creating nodes" << endl;
+
+
+    for (auto node : nodes) {
+      Node* n = new Node(node);
+      pnodes.insert(n);
+    }
+    for (auto &node : alt_nodes) {
+      Node* n = new Node(node.second);
+      pnodes.insert(n);
+    }
+    cout << "Creating edges" << endl;
+    for (auto edge : edges) {
+      Edge* e = new Edge(edge);
+      pedges.insert(e);
+    }
+    cout << "Creating graph" << endl;
     VG graph = VG(pnodes, pedges);
+    cout << "Made graph" << endl;
   }
 }

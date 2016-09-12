@@ -390,10 +390,22 @@ void help_validate(char** argv) {
 }
 
 int main_hg38(int argc, char** argv) {
-  cout <<"ain" << endl;
+  cout << "kMai2n" << endl;
   string filename1 = argv[2];
   string filename2 = argv[3];
-  parse_data_files(filename1, filename2);
+  string main_ref = argv[4];
+  string alt_ref = argv[5];
+  FastaReference main_fasta, alt_fasta;
+  main_fasta.open(main_ref);
+  //for (auto &seqName : *(main_fasta.index))
+  //cout << seqName.first << endl;
+  alt_fasta.open(alt_ref);
+  //for (auto seqName : alt_fasta.index->sequenceNames)
+  //cout << seqName << endl;
+
+  AltReference reference(main_fasta, alt_fasta);
+  //test_graph_gen();
+  parse_data_files(filename1, filename2, reference);
 }
 
 int main_validate(int argc, char** argv) {
