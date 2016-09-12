@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <tuple>
+#include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/lexical_cast.hpp>
@@ -52,12 +53,12 @@ namespace vg{
       string chr_id = chr_map[chromosome];
       cout << chromosome << endl;
       if (boost::ends_with(chromosome, "alt")){
-	cout << "Find: "<< chr_id << ":" << start << endl;
+	cout << "Find: "<< chr_id << ":" << start << "," <<end << endl;
 	//for (auto seqname : alt_ref.index->sequenceNames) cout << seqname << endl;
 	sequence = alt_ref.getSubSequence(chr_id, start, end);
       }
       else {
-	cout << "Find: "<< chr_id << ":" << start << endl;
+	cout << "Find: "<< chr_id << ":" << start << "," <<end << endl;
 	//for (auto seqname : main_ref.index->sequenceNames) cout << seqname << endl;
 	sequence = main_ref.getSubSequence(chr_id, start, end);
       }
@@ -132,7 +133,7 @@ namespace vg{
       events[chr.name].push_back(chr.len);
   }
   
-  Node create_node(string chrom, int start, int stop, int id, AltReference reference)
+  Node create_node(string chrom, int start, int stop, int id, AltReference &reference)
   {
     Node n;
     string seq;
@@ -153,7 +154,7 @@ namespace vg{
   vector<Node> get_main_nodes(const map<string, vector<int> > &events,
 			      map<tuple<string,int>, Node> &starts,
 			      map<tuple<string,int>, Node> &ends,
-			      AltReference reference
+			      AltReference &reference
 			      ) {
     vector<Node> nodes;
     int id = 1;
@@ -162,9 +163,21 @@ namespace vg{
       int start = 0;
       string chrom  = iter.first;
       for (auto stop : u_events){
-	Node n = create_node(chrom, start, stop, id++, reference);
+	int len = stop-start;
+	int steps = len/1000;
+	int i=start;
+	Node n = create_node(chrom, i, min(i+1000, stop), id++, reference);
 	nodes.push_back(n);
 	starts[make_tuple(chrom, start)] = n;
+	i = min(i+1000, stop);
+	for (; i<len+steps*1000; i+=1000) {
+	  n = create_node(chrom, i, i+1000, id++, reference);
+	  nodes.push_back(n);
+	}
+	if (i!=stop) {
+	  n = create_node(chrom, i, stop, id++, reference);
+	  nodes.push_back(n);
+	}
 	ends[make_tuple(chrom, stop)] = n;
 	start = stop;
       }
@@ -172,7 +185,7 @@ namespace vg{
     return nodes;
   }
 
-  map<AltLoci, Node> get_alt_nodes(const vector<AltLoci> &altLoci, int id, AltReference reference) {
+  map<AltLoci, Node> get_alt_nodes(const vector<AltLoci> &altLoci, int id, AltReference &reference) {
     map<AltLoci, Node> nodes;
     for (auto alt : altLoci) {
       nodes[alt] = create_node(alt.name, 0, alt.len, id++, reference);
